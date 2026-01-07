@@ -14,26 +14,37 @@ export default function SignupPage() {
   const onSignup = async () => {
     setLoading(true);
     setMsg(null);
+
     try {
+      // ✅ anon 쿠키 보장(없으면 발급)
+      await fetch("/api/anon", {
+        method: "POST",
+        credentials: "include",
+      }).catch(() => {});
+
       const { data, error } = await supabaseBrowser.auth.signUp({
         email,
         password,
       });
       if (error) throw error;
 
-      // signUp 직후 session이 바로 안 오는 설정도 있음.
-      // 그래도 대부분은 session이 오거나, email confirmation 쓰면 여기서 안내 필요.
       const token = data.session?.access_token;
 
       if (token) {
+        // ✅ 이메일 인증 OFF or 즉시 세션 발급 케이스
         await fetch("/api/migrate-anon", {
           method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
-        });
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        }).catch(() => {});
+
         router.push("/history");
       } else {
-        // 이메일 인증 켜져있으면 여기로 안내
-        setMsg("가입 완료! 이메일 인증 후 로그인해주세요.");
+        // ✅ 이메일 인증 ON이면: 이관은 "첫 로그인" 때 자동으로 됨(LoginPage에 이미 migrate 있음)
+        setMsg("가입 완료! 이메일 인증 후 로그인하면 기존 익명 기록이 자동으로 저장돼요.");
       }
     } catch (e: any) {
       setMsg(e?.message ?? "회원가입 실패");

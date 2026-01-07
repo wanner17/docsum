@@ -14,7 +14,14 @@ export default function LoginPage() {
   const onLogin = async () => {
     setLoading(true);
     setMsg(null);
+
     try {
+      // ✅ anon 쿠키 보장(없으면 발급)
+      await fetch("/api/anon", {
+        method: "POST",
+        credentials: "include",
+      }).catch(() => {});
+
       const { data, error } = await supabaseBrowser.auth.signInWithPassword({
         email,
         password,
@@ -22,11 +29,17 @@ export default function LoginPage() {
       if (error) throw error;
 
       const token = data.session?.access_token;
+
+      // ✅ 로그인 성공 후 자동 이관(있으면 1회 시도, 없으면 noop)
       if (token) {
         await fetch("/api/migrate-anon", {
           method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
-        });
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        }).catch(() => {});
       }
 
       router.push("/history");

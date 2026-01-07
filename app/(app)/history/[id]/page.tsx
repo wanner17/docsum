@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/app/lib/supabase/client";
+import LimitReachedModal from "@/app/components/auth/LimitReachedModal";
 
 type Summary = {
   id: string;
@@ -37,6 +38,9 @@ export default function HistoryDetailPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+
+  // ✅ 제한 모달
+  const [authOpen, setAuthOpen] = useState(false);
 
   // ✅ 타입 고정: headers 유니온 문제 방지
   async function getAuthHeader(): Promise<Record<string, string>> {
@@ -104,7 +108,6 @@ export default function HistoryDetailPage() {
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Failed");
 
-      // ✅ 목록으로 이동 + 갱신
       router.push("/history");
       router.refresh();
     } catch (e: any) {
@@ -141,7 +144,8 @@ export default function HistoryDetailPage() {
   }
 
   async function resummarize(preset: "short" | "bullet" | "detailed") {
-    if (!doc?.normalized_text) return alert("원문 텍스트를 저장하지 않아 재요약이 불가합니다.");
+    if (!doc?.normalized_text)
+      return alert("원문 텍스트를 저장하지 않아 재요약이 불가합니다.");
 
     setBusy(`resum:${preset}`);
     try {
@@ -152,7 +156,7 @@ export default function HistoryDetailPage() {
         credentials: "include",
         headers: { "Content-Type": "application/json", ...authHeader },
         body: JSON.stringify({
-          documentId: doc.id,          // ✅ 가능하면 doc.id도 같이 보내기 (서버에서 upsert 더 안전)
+          documentId: doc.id,
           text: doc.normalized_text,
           preset,
           filename: doc.filename,
@@ -162,16 +166,9 @@ export default function HistoryDetailPage() {
 
       const j1 = await r1.json().catch(() => ({}));
 
+      // ✅ 402 → confirm 대신 LimitReachedModal 오픈
       if (r1.status === 402 && j1.code === "AUTH_REQUIRED") {
-        if (
-            !confirm(
-              "무료 횟수를 모두 이용하였습니다.\n로그인 이후 계속 이용 가능합니다.\n로그인 페이지로 이동하시겠습니까?"
-            )
-          ) {
-            return;
-          }
-        // 👉 로그인 페이지로 이동 (원래 페이지 기억)
-        router.push(`/login?next=/history/${doc.id}`);
+        setAuthOpen(true);
         return;
       }
 
@@ -185,13 +182,20 @@ export default function HistoryDetailPage() {
     }
   }
 
-
   if (loading) return <main className="p-4 sm:p-6">Loading...</main>;
   if (err) return <main className="p-4 sm:p-6">Error: {err}</main>;
   if (!doc) return <main className="p-4 sm:p-6">Not found</main>;
 
   return (
     <main className="mx-auto max-w-3xl p-4 sm:p-6">
+      {/* ✅ LimitReachedModal */}
+      <LimitReachedModal
+        open={authOpen}
+        onClose={() => setAuthOpen(false)}
+        limit={3}
+        loginHref={`/login?next=/history/${doc.id}`}
+      />
+
       {/* Header */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold">문서</h1>

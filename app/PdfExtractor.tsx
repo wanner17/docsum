@@ -3,6 +3,7 @@
 import React, { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/app/lib/supabase/client";
+import AuthGate from "@/app/components/auth/AuthGate";
 
 type Preset = "short" | "bullet" | "detailed";
 type ToastType = "success" | "error" | "info";
@@ -37,6 +38,14 @@ export default function PdfExtractor() {
 
   const router = useRouter();
 
+  const [authOpen, setAuthOpen] = useState(false);
+
+  const [anonUsage, setAnonUsage] = useState<number | null>(null);
+  const [freeLimit, setFreeLimit] = useState<number>(5);
+  const [userLoggedIn, setUserLoggedIn] = useState(false);
+
+  const canProceedByLimit = userLoggedIn || (anonUsage ?? 0) < freeLimit;
+
   /* ---------------------------
    * PDF Password Modal state
    * -------------------------- */
@@ -44,6 +53,7 @@ export default function PdfExtractor() {
   const [pw, setPw] = useState("");
   const [pwError, setPwError] = useState<string | null>(null);
   const pendingPdfRef = useRef<File | null>(null);
+
 
   function openPwModalFor(file: File, msg?: string) {
     pendingPdfRef.current = file;
@@ -334,14 +344,32 @@ export default function PdfExtractor() {
     setResult("");
 
     try {
-      await fetch("/api/anon", {
-        method: "POST",
-        credentials: "include",
-      }).catch(() => {});
-
+      // 1) 세션 확인 (로그인 여부)
       const { data: sess } = await supabaseBrowser.auth.getSession();
       const token = sess.session?.access_token;
+      const isLoggedIn = Boolean(token);
 
+      // 2) anon 보장 + usage_count 조회
+      const anonRes = await fetch("/api/anon", {
+        method: "POST",
+        credentials: "include",
+      }).catch(() => null);
+
+      const anonJson = await anonRes?.json().catch(() => null);
+      const usageCount = Number(anonJson?.usage_count ?? 0);
+      const limit = Number(anonJson?.free_limit ?? 5);
+
+      setAnonUsage(usageCount);
+      setFreeLimit(limit);
+      setUserLoggedIn(isLoggedIn);
+
+      // 3) ✅ 프리체크: 익명 + 제한 도달이면 서버 호출 전에 모달
+      if (!isLoggedIn && usageCount >= limit) {
+        setAuthOpen(true);
+        return;
+      }
+
+      // 4) summarize 호출
       const sumRes = await fetch("/api/summarize", {
         method: "POST",
         credentials: "include",
@@ -357,17 +385,11 @@ export default function PdfExtractor() {
         }),
       });
 
+      // 5) 최종 방어(서버에서 402)
       if (sumRes.status === 402) {
         const j = await sumRes.json().catch(() => null);
         if (j?.code === "AUTH_REQUIRED") {
-          if (
-            !confirm(
-              "무료 횟수를 모두 이용하였습니다.\n로그인 이후 계속 이용 가능합니다.\n로그인 페이지로 이동하시겠습니까?"
-            )
-          ) {
-            return;
-          }
-          router.push("/login");
+          setAuthOpen(true);
           return;
         }
       }
@@ -375,8 +397,7 @@ export default function PdfExtractor() {
       const sumJson = await sumRes.json();
       if (!sumRes.ok) throw new Error(sumJson?.error || "요약 실패");
 
-      const summaryText = sumJson.summary ?? "";
-      setResult(summaryText);
+      setResult(sumJson.summary ?? "");
       pushToast("success", "요약 완료");
     } catch (e: any) {
       pushToast("error", `요약/저장 오류: ${e?.message ?? "unknown error"}`);
@@ -384,6 +405,7 @@ export default function PdfExtractor() {
       setSummarizing(false);
     }
   }
+
 
   /* ---------------------------
    * Copy / Download
@@ -634,16 +656,25 @@ export default function PdfExtractor() {
                   <option value="detailed">자세히</option>
                 </select>
 
-                <button
-                  className={[
-                    "rounded-xl px-4 py-2 text-sm font-medium text-white",
-                    canSummarize ? "bg-blue-600 hover:bg-blue-700" : "bg-slate-300",
-                  ].join(" ")}
-                  disabled={!canSummarize}
-                  onClick={summarize}
+                <AuthGate
+                  canProceed={canProceedByLimit}
+                  open={authOpen}
+                  onOpen={() => setAuthOpen(true)}
+                  onClose={() => setAuthOpen(false)}
+                  loginHref={`/login?from=limit&u=${anonUsage ?? 0}`}
                 >
-                  {summarizing ? "요약 중…" : "요약하기"}
-                </button>
+                  <button
+                    className={[
+                      "rounded-xl px-4 py-2 text-sm font-medium text-white",
+                      canSummarize ? "bg-blue-600 hover:bg-blue-700" : "bg-slate-300",
+                    ].join(" ")}
+                    disabled={!canSummarize}
+                    onClick={summarize}
+                  >
+                    {summarizing ? "요약 중…" : "요약하기"}
+                  </button>
+                </AuthGate>
+
 
                 <button
                   className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm hover:bg-slate-50"
