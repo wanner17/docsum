@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 
 import { getSupabaseAdmin } from "@/app/lib/supabase/admin";
-import { planFromPriceId } from "@/app/lib/billing/stripe";
+import { planFromPriceId } from "@/app/lib/_billing_disabled/stripe";
 
 export const runtime = "nodejs";
 

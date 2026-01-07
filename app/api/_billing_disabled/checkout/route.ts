@@ -3,7 +3,7 @@ import Stripe from "stripe";
 
 import { getSupabaseAdmin } from "@/app/lib/supabase/admin";
 import { getUserIdFromAuthHeader } from "@/app/lib/auth";
-import { STRIPE_PRICE_ID, PaidPlan } from "@/app/lib/billing/stripe";
+import { STRIPE_PRICE_ID, PaidPlan } from "@/app/lib/_billing_disabled/stripe";
 
 export const runtime = "nodejs";
 
